@@ -9,10 +9,10 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/uisee/vishare/internal/client"
-	"github.com/uisee/vishare/internal/config"
-	"github.com/uisee/vishare/internal/server"
-	"github.com/uisee/vishare/internal/tray"
+	"github.com/victorfengming/vishare/internal/client"
+	"github.com/victorfengming/vishare/internal/config"
+	"github.com/victorfengming/vishare/internal/server"
+	"github.com/victorfengming/vishare/internal/tray"
 )
 
 func main() {

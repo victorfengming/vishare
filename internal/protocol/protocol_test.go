@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/uisee/vishare/internal/protocol"
+	"github.com/victorfengming/vishare/internal/protocol"
 )
 
 func pipe() (net.Conn, net.Conn) {

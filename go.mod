@@ -1,4 +1,4 @@
-module github.com/uisee/vishare
+module github.com/victorfengming/vishare
 
 go 1.24.0
 

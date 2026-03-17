@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/uisee/vishare/internal/config"
+	"github.com/victorfengming/vishare/internal/config"
 )
 
 func writeTemp(t *testing.T, content string) string {

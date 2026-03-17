@@ -9,9 +9,9 @@ import (
 
 	"github.com/go-vgo/robotgo"
 	"github.com/rs/zerolog/log"
-	"github.com/uisee/vishare/internal/config"
-	"github.com/uisee/vishare/internal/input"
-	"github.com/uisee/vishare/internal/protocol"
+	"github.com/victorfengming/vishare/internal/config"
+	"github.com/victorfengming/vishare/internal/input"
+	"github.com/victorfengming/vishare/internal/protocol"
 )
 
 const (
