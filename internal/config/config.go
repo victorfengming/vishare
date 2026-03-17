@@ -26,6 +26,7 @@ type Config struct {
 	ListenAddr string         `toml:"listen_addr"`
 	ServerAddr string         `toml:"server_addr"`
 	ScreenName string         `toml:"screen_name"`
+	Secret     string         `toml:"secret"`
 	Screens    []ScreenConfig `toml:"screens"`
 }
 

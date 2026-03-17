@@ -10,34 +10,22 @@ import (
 	"github.com/go-vgo/robotgo"
 	"github.com/rs/zerolog/log"
 	"github.com/victorfengming/vishare/internal/config"
+	"github.com/victorfengming/vishare/internal/defaults"
 	"github.com/victorfengming/vishare/internal/input"
 	"github.com/victorfengming/vishare/internal/protocol"
+	"github.com/victorfengming/vishare/internal/status"
 )
-
-const (
-	sendBufSize    = 256
-	pingInterval   = 5 * time.Second
-	edgePollMs     = 10 * time.Millisecond
-	edgeHysteresis = 3
-	backoffMin     = 1 * time.Second
-	backoffMax     = 30 * time.Second
-)
-
-// StatusMsg is sent on the status channel to update the tray.
-type StatusMsg struct {
-	Connected bool
-}
 
 type Client struct {
 	cfg        *config.Config
-	statusCh   chan<- StatusMsg
+	statusCh   chan<- status.Msg
 	injector   input.Injector
 	hasControl atomic.Bool
 
 	screenW, screenH int
 }
 
-func New(cfg *config.Config, statusCh chan<- StatusMsg) *Client {
+func New(cfg *config.Config, statusCh chan<- status.Msg) *Client {
 	w, h := robotgo.GetScreenSize()
 	return &Client{
 		cfg:      cfg,
@@ -49,7 +37,7 @@ func New(cfg *config.Config, statusCh chan<- StatusMsg) *Client {
 }
 
 func (c *Client) Run(ctx context.Context) error {
-	backoff := backoffMin
+	backoff := defaults.BackoffMin
 	for {
 		select {
 		case <-ctx.Done():
@@ -61,33 +49,33 @@ func (c *Client) Run(ctx context.Context) error {
 		if err != nil {
 			log.Error().Err(err).Str("addr", c.cfg.ServerAddr).Msg("connect failed, retrying")
 			if c.statusCh != nil {
-				c.statusCh <- StatusMsg{Connected: false}
+				c.statusCh <- status.Msg{Connected: false}
 			}
 			select {
 			case <-ctx.Done():
 				return nil
 			case <-time.After(backoff):
 			}
-			backoff = min(backoff*2, backoffMax)
+			backoff = min(backoff*2, defaults.BackoffMax)
 			continue
 		}
-		backoff = backoffMin
+		backoff = defaults.BackoffMin
 		log.Info().Str("addr", c.cfg.ServerAddr).Msg("connected to server")
 
 		if err := c.session(ctx, conn); err != nil {
 			log.Error().Err(err).Msg("session ended")
 		}
 		if c.statusCh != nil {
-			c.statusCh <- StatusMsg{Connected: false}
+			c.statusCh <- status.Msg{Connected: false}
 		}
 		conn.Close()
 	}
 }
 
 func (c *Client) session(ctx context.Context, conn net.Conn) error {
-	// Send handshake
 	hs := protocol.EncodeHandshake(protocol.HandshakePayload{
 		ScreenName: c.cfg.ScreenName,
+		Secret:     c.cfg.Secret,
 		ScreenW:    uint16(c.screenW),
 		ScreenH:    uint16(c.screenH),
 	})
@@ -96,10 +84,10 @@ func (c *Client) session(ctx context.Context, conn net.Conn) error {
 	}
 
 	if c.statusCh != nil {
-		c.statusCh <- StatusMsg{Connected: true}
+		c.statusCh <- status.Msg{Connected: true}
 	}
 
-	sendCh := make(chan protocol.Message, sendBufSize)
+	sendCh := make(chan protocol.Message, defaults.SendBufSize)
 	ctx2, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -196,7 +184,7 @@ func (c *Client) writeLoop(ctx context.Context, conn net.Conn, sendCh <-chan pro
 }
 
 func (c *Client) keepalive(ctx context.Context, sendCh chan protocol.Message) {
-	ticker := time.NewTicker(pingInterval)
+	ticker := time.NewTicker(defaults.PingInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -212,7 +200,7 @@ func (c *Client) keepalive(ctx context.Context, sendCh chan protocol.Message) {
 }
 
 func (c *Client) edgePoller(ctx context.Context, sendCh chan protocol.Message) {
-	ticker := time.NewTicker(edgePollMs)
+	ticker := time.NewTicker(defaults.EdgePollMs)
 	defer ticker.Stop()
 	edgeCount := 0
 
@@ -228,7 +216,7 @@ func (c *Client) edgePoller(ctx context.Context, sendCh chan protocol.Message) {
 			cx, cy := robotgo.GetMousePos()
 			if c.atEdge(cx, cy) {
 				edgeCount++
-				if edgeCount >= edgeHysteresis {
+				if edgeCount >= defaults.EdgeHysteresis {
 					edgeCount = 0
 					c.hasControl.Store(false)
 					log.Info().Msg("returning control to server")
@@ -248,11 +236,4 @@ func (c *Client) atEdge(cx, cy int) bool {
 	const margin = 2
 	return cx <= margin || cx >= c.screenW-1-margin ||
 		cy <= margin || cy >= c.screenH-1-margin
-}
-
-func min(a, b time.Duration) time.Duration {
-	if a < b {
-		return a
-	}
-	return b
 }

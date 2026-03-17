@@ -24,8 +24,16 @@ GOPROXY=direct go mod download
 
 echo "==> 编译 macOS ARM64 服务端..."
 mkdir -p build
+
+# -extldflags '-sectcreate __TEXT __info_plist ...' embeds Info.plist into
+# the binary so that macOS treats it as a menu-bar (LSUIElement) app.
+# Without this, NSStatusItem menus do not receive mouse events when running
+# as a non-bundled binary.
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 \
-    go build -o build/vishare-darwin-arm64 ./cmd/vishare
+    go build \
+    -ldflags="-extldflags '-sectcreate __TEXT __info_plist cmd/vishare/Info.plist'" \
+    -o build/vishare-darwin-arm64 \
+    ./cmd/vishare
 
 echo ""
 echo "✅ 编译完成: build/vishare-darwin-arm64"

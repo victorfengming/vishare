@@ -5,28 +5,16 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-vgo/robotgo"
 	"github.com/rs/zerolog/log"
 	"github.com/victorfengming/vishare/internal/config"
+	"github.com/victorfengming/vishare/internal/defaults"
 	"github.com/victorfengming/vishare/internal/input"
 	"github.com/victorfengming/vishare/internal/protocol"
+	"github.com/victorfengming/vishare/internal/status"
 )
-
-const (
-	sendBufSize   = 256
-	pingInterval  = 5 * time.Second
-	edgePollMs    = 10 * time.Millisecond
-	edgeHysteresis = 3 // frames
-)
-
-// StatusMsg is sent on the status channel to update the tray.
-type StatusMsg struct {
-	Connected bool
-	ClientName string
-}
 
 type clientState struct {
 	conn       net.Conn
@@ -38,16 +26,16 @@ type clientState struct {
 
 type Server struct {
 	cfg      *config.Config
-	statusCh chan<- StatusMsg
+	statusCh chan<- status.Msg
 
-	mu         sync.Mutex
-	activeClient *clientState  // currently controlled client (nil = local)
-	clients    map[string]*clientState
+	mu           sync.Mutex
+	activeClient *clientState
+	clients      map[string]*clientState
 
 	localW, localH int
 }
 
-func New(cfg *config.Config, statusCh chan<- StatusMsg) *Server {
+func New(cfg *config.Config, statusCh chan<- status.Msg) *Server {
 	w, h := robotgo.GetScreenSize()
 	return &Server{
 		cfg:      cfg,
@@ -65,7 +53,6 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	log.Info().Str("addr", s.cfg.ListenAddr).Msg("server listening")
 
-	// Start input capture
 	eventCh, err := input.StartCapture()
 	if err != nil {
 		ln.Close()
@@ -73,10 +60,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer input.StopCapture()
 
-	// Accept loop
 	go s.acceptLoop(ctx, ln)
-
-	// Edge detection + event dispatcher
 	go s.dispatcher(ctx, eventCh)
 
 	<-ctx.Done()
@@ -106,7 +90,6 @@ func (s *Server) handleClient(ctx context.Context, conn net.Conn) {
 	addr := conn.RemoteAddr().String()
 	log.Info().Str("addr", addr).Msg("client connected")
 
-	// Expect handshake first
 	msg, err := protocol.ReadMsg(conn)
 	if err != nil || msg.Type != protocol.MsgHandshake {
 		log.Error().Str("addr", addr).Msg("expected handshake")
@@ -117,11 +100,18 @@ func (s *Server) handleClient(ctx context.Context, conn net.Conn) {
 		log.Error().Err(err).Msg("decode handshake")
 		return
 	}
+
+	// Verify pre-shared secret if configured
+	if s.cfg.Secret != "" && hs.Secret != s.cfg.Secret {
+		log.Warn().Str("addr", addr).Msg("client authentication failed: wrong secret")
+		return
+	}
+
 	log.Info().Str("name", hs.ScreenName).Uint16("w", hs.ScreenW).Uint16("h", hs.ScreenH).Msg("client handshake")
 
 	cs := &clientState{
 		conn:       conn,
-		sendCh:     make(chan protocol.Message, sendBufSize),
+		sendCh:     make(chan protocol.Message, defaults.SendBufSize),
 		screenName: hs.ScreenName,
 		screenW:    hs.ScreenW,
 		screenH:    hs.ScreenH,
@@ -139,13 +129,13 @@ func (s *Server) handleClient(ctx context.Context, conn net.Conn) {
 		}
 		s.mu.Unlock()
 		if s.statusCh != nil {
-			s.statusCh <- StatusMsg{Connected: false}
+			s.statusCh <- status.Msg{Connected: false}
 		}
 		log.Info().Str("name", hs.ScreenName).Msg("client disconnected")
 	}()
 
 	if s.statusCh != nil {
-		s.statusCh <- StatusMsg{Connected: true, ClientName: hs.ScreenName}
+		s.statusCh <- status.Msg{Connected: true, ClientName: hs.ScreenName}
 	}
 
 	ctx2, cancel := context.WithCancel(ctx)
@@ -195,7 +185,7 @@ func (s *Server) writeLoop(ctx context.Context, cs *clientState) {
 }
 
 func (s *Server) keepalive(ctx context.Context, cs *clientState) {
-	ticker := time.NewTicker(pingInterval)
+	ticker := time.NewTicker(defaults.PingInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -211,17 +201,16 @@ func (s *Server) keepalive(ctx context.Context, cs *clientState) {
 }
 
 // dispatcher handles input events and edge detection.
+// Edge detection is event-driven: a switch triggers when the mouse reaches a
+// screen edge for EdgeHysteresis consecutive MouseMove events, eliminating
+// the need for a polling timer.
 func (s *Server) dispatcher(ctx context.Context, eventCh <-chan input.HookEvent) {
-	edgeTicker := time.NewTicker(edgePollMs)
-	defer edgeTicker.Stop()
-
-	var edgeCount atomic.Int32
+	var edgeCount int
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-
 		case ev, ok := <-eventCh:
 			if !ok {
 				return
@@ -231,80 +220,67 @@ func (s *Server) dispatcher(ctx context.Context, eventCh <-chan input.HookEvent)
 			s.mu.Unlock()
 
 			if ac == nil {
-				// Local control — forward to active client if switching
-				// (edge detection handles the switch; no forwarding needed here
-				//  except if we want to suppress events — we don't for now)
+				// Local control — detect edge from mouse move events only
+				if ev.Kind != input.EventMouseMove {
+					continue
+				}
+				targetScreen := s.edgeTarget(int(ev.X), int(ev.Y))
+				if targetScreen == "" {
+					edgeCount = 0
+					continue
+				}
+				edgeCount++
+				if edgeCount < defaults.EdgeHysteresis {
+					continue
+				}
+				edgeCount = 0
+
+				s.mu.Lock()
+				target, ok := s.clients[targetScreen]
+				s.mu.Unlock()
+				if !ok {
+					log.Warn().Str("screen", targetScreen).Msg("target screen not connected")
+					continue
+				}
+
+				// Warp cursor to center
+				robotgo.Move(s.localW/2, s.localH/2)
+
+				s.mu.Lock()
+				s.activeClient = target
+				s.mu.Unlock()
+
+				log.Info().Str("target", targetScreen).Msg("switching to client")
+				select {
+				case target.sendCh <- protocol.Message{
+					Type:    protocol.MsgSwitchTo,
+					Payload: protocol.EncodeSwitchTo(targetScreen),
+				}:
+				default:
+				}
 				continue
 			}
 			// Forward event to active client
 			s.forwardEvent(ac, ev)
-
-		case <-edgeTicker.C:
-			s.mu.Lock()
-			ac := s.activeClient
-			s.mu.Unlock()
-
-			if ac != nil {
-				// Client has control; edge detection on client side
-				continue
-			}
-
-			// Check if cursor is at an edge of the local screen
-			cx, cy := robotgo.GetMousePos()
-			targetScreen := s.edgeTarget(cx, cy)
-			if targetScreen == "" {
-				edgeCount.Store(0)
-				continue
-			}
-			cnt := edgeCount.Add(1)
-			if cnt < edgeHysteresis {
-				continue
-			}
-			edgeCount.Store(0)
-
-			s.mu.Lock()
-			target, ok := s.clients[targetScreen]
-			s.mu.Unlock()
-			if !ok {
-				log.Warn().Str("screen", targetScreen).Msg("target screen not connected")
-				continue
-			}
-
-			// Warp cursor to center
-			robotgo.Move(s.localW/2, s.localH/2)
-
-			s.mu.Lock()
-			s.activeClient = target
-			s.mu.Unlock()
-
-			log.Info().Str("target", targetScreen).Msg("switching to client")
-			select {
-			case target.sendCh <- protocol.Message{
-				Type:    protocol.MsgSwitchTo,
-				Payload: protocol.EncodeSwitchTo(targetScreen),
-			}:
-			default:
-			}
 		}
 	}
 }
 
 // edgeTarget returns the screen name to switch to if cursor is at an edge.
+// It identifies the server's own screen via cfg.ScreenName; if unset, it
+// falls back to the first screen entry that has any edge configured.
 func (s *Server) edgeTarget(cx, cy int) string {
 	const margin = 2
-	// Find server's own screen config
 	var srv *config.ScreenConfig
+
 	for i := range s.cfg.Screens {
-		if s.cfg.Screens[i].Name == "" || s.cfg.Screens[i].EdgeLeft != "" ||
-			s.cfg.Screens[i].EdgeRight != "" || s.cfg.Screens[i].EdgeTop != "" ||
-			s.cfg.Screens[i].EdgeBottom != "" {
-			// heuristic: find the screen with edges pointing to others (server screen)
-		}
-		// Just iterate all screens and use first that has edges defined
 		sc := &s.cfg.Screens[i]
-		if sc.EdgeLeft != "" || sc.EdgeRight != "" || sc.EdgeTop != "" || sc.EdgeBottom != "" {
+		if s.cfg.ScreenName != "" && sc.Name == s.cfg.ScreenName {
 			srv = sc
 			break
+		}
+		if srv == nil && (sc.EdgeLeft != "" || sc.EdgeRight != "" || sc.EdgeTop != "" || sc.EdgeBottom != "") {
+			srv = sc
 		}
 	}
 	if srv == nil && len(s.cfg.Screens) > 0 {
@@ -334,15 +310,11 @@ func (s *Server) forwardEvent(cs *clientState, ev input.HookEvent) {
 	var msg protocol.Message
 	switch ev.Kind {
 	case input.EventMouseMove:
-		// Translate server coords → client coords
 		clientX := int16(float64(ev.X) / float64(s.localW) * float64(cs.screenW))
 		clientY := int16(float64(ev.Y) / float64(s.localH) * float64(cs.screenH))
 		msg = protocol.Message{
-			Type: protocol.MsgMouseMove,
-			Payload: protocol.EncodeMouseMove(protocol.MouseMovePayload{
-				X: clientX, Y: clientY,
-				ClientW: int16(cs.screenW), ClientH: int16(cs.screenH),
-			}),
+			Type:    protocol.MsgMouseMove,
+			Payload: protocol.EncodeMouseMove(protocol.MouseMovePayload{X: clientX, Y: clientY}),
 		}
 	case input.EventMouseDown:
 		msg = protocol.Message{

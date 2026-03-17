@@ -62,30 +62,25 @@ func ReadMsg(r io.Reader) (Message, error) {
 
 // ---- Payload encode/decode helpers ----
 
-// MouseMovePayload: X int16, Y int16, ClientW int16, ClientH int16 — 8 bytes
+// MouseMovePayload: X int16, Y int16 — 4 bytes
 type MouseMovePayload struct {
-	X, Y           int16
-	ClientW, ClientH int16
+	X, Y int16
 }
 
 func EncodeMouseMove(p MouseMovePayload) []byte {
-	b := make([]byte, 8)
+	b := make([]byte, 4)
 	binary.BigEndian.PutUint16(b[0:], uint16(p.X))
 	binary.BigEndian.PutUint16(b[2:], uint16(p.Y))
-	binary.BigEndian.PutUint16(b[4:], uint16(p.ClientW))
-	binary.BigEndian.PutUint16(b[6:], uint16(p.ClientH))
 	return b
 }
 
 func DecodeMouseMove(b []byte) (MouseMovePayload, error) {
-	if len(b) < 8 {
+	if len(b) < 4 {
 		return MouseMovePayload{}, fmt.Errorf("MouseMove payload too short")
 	}
 	return MouseMovePayload{
-		X:       int16(binary.BigEndian.Uint16(b[0:])),
-		Y:       int16(binary.BigEndian.Uint16(b[2:])),
-		ClientW: int16(binary.BigEndian.Uint16(b[4:])),
-		ClientH: int16(binary.BigEndian.Uint16(b[6:])),
+		X: int16(binary.BigEndian.Uint16(b[0:])),
+		Y: int16(binary.BigEndian.Uint16(b[2:])),
 	}, nil
 }
 
@@ -163,44 +158,42 @@ func DecodeSwitchTo(b []byte) (string, error) {
 	if len(b) < 32 {
 		return "", fmt.Errorf("SwitchTo payload too short")
 	}
-	n := 32
-	for i, c := range b[:32] {
-		if c == 0 {
-			n = i
-			break
-		}
-	}
-	return string(b[:n]), nil
+	return nullTerminated(b[:32]), nil
 }
 
-// HandshakePayload: ScreenName [32]byte, ScreenW uint16, ScreenH uint16 — 36 bytes
+// HandshakePayload: ScreenName [32]byte, Secret [32]byte, ScreenW uint16, ScreenH uint16 — 68 bytes
 type HandshakePayload struct {
-	ScreenName      string
+	ScreenName       string
+	Secret           string
 	ScreenW, ScreenH uint16
 }
 
 func EncodeHandshake(p HandshakePayload) []byte {
-	b := make([]byte, 36)
-	copy(b, p.ScreenName)
-	binary.BigEndian.PutUint16(b[32:], p.ScreenW)
-	binary.BigEndian.PutUint16(b[34:], p.ScreenH)
+	b := make([]byte, 68)
+	copy(b[0:32], p.ScreenName)
+	copy(b[32:64], p.Secret)
+	binary.BigEndian.PutUint16(b[64:], p.ScreenW)
+	binary.BigEndian.PutUint16(b[66:], p.ScreenH)
 	return b
 }
 
 func DecodeHandshake(b []byte) (HandshakePayload, error) {
-	if len(b) < 36 {
+	if len(b) < 68 {
 		return HandshakePayload{}, fmt.Errorf("Handshake payload too short")
 	}
-	n := 32
-	for i, c := range b[:32] {
+	return HandshakePayload{
+		ScreenName: nullTerminated(b[0:32]),
+		Secret:     nullTerminated(b[32:64]),
+		ScreenW:    binary.BigEndian.Uint16(b[64:]),
+		ScreenH:    binary.BigEndian.Uint16(b[66:]),
+	}, nil
+}
+
+func nullTerminated(b []byte) string {
+	for i, c := range b {
 		if c == 0 {
-			n = i
-			break
+			return string(b[:i])
 		}
 	}
-	return HandshakePayload{
-		ScreenName: string(b[:n]),
-		ScreenW:    binary.BigEndian.Uint16(b[32:]),
-		ScreenH:    binary.BigEndian.Uint16(b[34:]),
-	}, nil
+	return string(b)
 }

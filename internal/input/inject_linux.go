@@ -3,8 +3,6 @@
 package input
 
 import (
-	"fmt"
-
 	"github.com/go-vgo/robotgo"
 )
 
@@ -66,7 +64,7 @@ func keycodeToName(keycode uint16) string {
 		return name
 	}
 	if keycode >= 0x20 && keycode <= 0x7e {
-		return fmt.Sprintf("%c", rune(keycode))
+		return string(rune(keycode))
 	}
 	return ""
 }

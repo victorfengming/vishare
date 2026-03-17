@@ -35,7 +35,7 @@ func roundtrip(t *testing.T, m protocol.Message) protocol.Message {
 }
 
 func TestMouseMove(t *testing.T) {
-	p := protocol.MouseMovePayload{X: 100, Y: -50, ClientW: 1920, ClientH: 1080}
+	p := protocol.MouseMovePayload{X: 100, Y: -50}
 	msg := protocol.Message{Type: protocol.MsgMouseMove, Payload: protocol.EncodeMouseMove(p)}
 	got := roundtrip(t, msg)
 
