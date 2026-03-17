@@ -1,0 +1,17 @@
+role = "server"
+listen_addr = "192.168.100.98:24800"  # Ubuntu 时用此 IP；Mac 上改为 Mac 的 IP
+
+# The server's own screen comes first.
+# Ubuntu 作为服务端时 name 改为 "ubuntu-main"
+# Mac 作为服务端时 name 改为 "mac-main"
+[[screens]]
+name        = "ubuntu-main"
+edge_right  = "windows-pc"   # 光标移到右边缘时切换到 Windows
+edge_left   = ""
+edge_top    = ""
+edge_bottom = ""
+
+# The client screen definition.
+[[screens]]
+name      = "windows-pc"
+edge_left = "ubuntu-main"

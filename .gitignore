@@ -1,0 +1,5 @@
+build/
+*.exe
+*.test
+.idea/
+.DS_Store
