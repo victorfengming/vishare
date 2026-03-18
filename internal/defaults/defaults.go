@@ -9,4 +9,5 @@ const (
 	EdgeHysteresis = 3
 	BackoffMin     = 1 * time.Second
 	BackoffMax     = 30 * time.Second
+	MouseSpeed     = 0.5
 )

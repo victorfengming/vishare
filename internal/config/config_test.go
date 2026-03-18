@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/victorfengming/vishare/internal/config"
+	"github.com/victorfengming/vishare/internal/defaults"
 )
 
 func writeTemp(t *testing.T, content string) string {
@@ -61,6 +62,25 @@ screen_name = "windows-pc"
 	}
 	if cfg.ServerAddr != "192.168.100.98:24800" {
 		t.Fatalf("server_addr mismatch")
+	}
+	if cfg.MouseSpeed != defaults.MouseSpeed {
+		t.Fatalf("mouse_speed default mismatch: got %v", cfg.MouseSpeed)
+	}
+}
+
+func TestClientMouseSpeedConfigured(t *testing.T) {
+	p := writeTemp(t, `
+role        = "client"
+server_addr = "192.168.100.98:24800"
+screen_name = "windows-pc"
+mouse_speed = 0.25
+`)
+	cfg, err := config.Load(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.MouseSpeed != 0.25 {
+		t.Fatalf("mouse_speed mismatch: got %v", cfg.MouseSpeed)
 	}
 }
 
@@ -124,5 +144,18 @@ screen_name = "windows-pc"
 	_, err := config.Load(p)
 	if err == nil {
 		t.Fatal("expected error for missing server_addr")
+	}
+}
+
+func TestClientInvalidMouseSpeed(t *testing.T) {
+	p := writeTemp(t, `
+role        = "client"
+server_addr = "192.168.100.98:24800"
+screen_name = "windows-pc"
+mouse_speed = 1.5
+`)
+	_, err := config.Load(p)
+	if err == nil {
+		t.Fatal("expected error for invalid mouse_speed")
 	}
 }

@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"sync/atomic"
 	"time"
@@ -119,7 +120,7 @@ func (c *Client) readLoop(ctx context.Context, conn net.Conn, sendCh chan protoc
 			if err != nil {
 				continue
 			}
-			c.injector.MoveMouse(int(p.X), int(p.Y))
+			c.moveMouse(int(p.X), int(p.Y))
 		case protocol.MsgMouseButton:
 			if !c.hasControl.Load() {
 				continue
@@ -245,4 +246,59 @@ func (c *Client) atEdge(cx, cy int) bool {
 	const margin = 2
 	return cx <= margin || cx >= c.screenW-1-margin ||
 		cy <= margin || cy >= c.screenH-1-margin
+}
+
+func (c *Client) moveMouse(targetX, targetY int) {
+	targetX = clamp(targetX, 0, c.screenW-1)
+	targetY = clamp(targetY, 0, c.screenH-1)
+
+	speed := c.cfg.MouseSpeed
+	if speed <= 0 {
+		speed = defaults.MouseSpeed
+	}
+	if speed >= 1 {
+		c.injector.MoveMouse(targetX, targetY)
+		return
+	}
+
+	cx, cy := robotgo.GetMousePos()
+	nextX := scaledCoord(cx, targetX, speed)
+	nextY := scaledCoord(cy, targetY, speed)
+	c.injector.MoveMouse(
+		clamp(nextX, 0, c.screenW-1),
+		clamp(nextY, 0, c.screenH-1),
+	)
+}
+
+func scaledCoord(current, target int, speed float64) int {
+	if current == target {
+		return current
+	}
+
+	step := int(math.Round(float64(target-current) * speed))
+	if step == 0 {
+		if target > current {
+			return current + 1
+		}
+		return current - 1
+	}
+
+	next := current + step
+	if target > current && next > target {
+		return target
+	}
+	if target < current && next < target {
+		return target
+	}
+	return next
+}
+
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }

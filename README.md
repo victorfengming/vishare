@@ -167,6 +167,7 @@ edge_left = "mac-main"        # or "ubuntu-main"
 role        = "client"
 server_addr = "192.168.100.1:24800"
 screen_name = "windows-pc"
+mouse_speed = 0.5
 ```
 
 ### Step 3 — Run
@@ -228,6 +229,7 @@ edge_left = "mac-main"
 # ── Client only ───────────────────────────────────────────
 server_addr = "192.168.100.1:24800"
 screen_name = "windows-pc"
+mouse_speed = 0.5          # 0.5 = half speed, range (0, 1]
 ```
 
 ---

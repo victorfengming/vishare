@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/BurntSushi/toml"
+	"github.com/victorfengming/vishare/internal/defaults"
 )
 
 type Role string
@@ -14,11 +15,11 @@ const (
 )
 
 type ScreenConfig struct {
-	Name        string `toml:"name"`
-	EdgeLeft    string `toml:"edge_left"`
-	EdgeRight   string `toml:"edge_right"`
-	EdgeTop     string `toml:"edge_top"`
-	EdgeBottom  string `toml:"edge_bottom"`
+	Name       string `toml:"name"`
+	EdgeLeft   string `toml:"edge_left"`
+	EdgeRight  string `toml:"edge_right"`
+	EdgeTop    string `toml:"edge_top"`
+	EdgeBottom string `toml:"edge_bottom"`
 }
 
 type Config struct {
@@ -27,6 +28,7 @@ type Config struct {
 	ServerAddr string         `toml:"server_addr"`
 	ScreenName string         `toml:"screen_name"`
 	Secret     string         `toml:"secret"`
+	MouseSpeed float64        `toml:"mouse_speed"`
 	Screens    []ScreenConfig `toml:"screens"`
 }
 
@@ -74,6 +76,12 @@ func (c *Config) Validate() error {
 		}
 		if c.ScreenName == "" {
 			return fmt.Errorf("client role requires screen_name")
+		}
+		if c.MouseSpeed == 0 {
+			c.MouseSpeed = defaults.MouseSpeed
+		}
+		if c.MouseSpeed <= 0 || c.MouseSpeed > 1 {
+			return fmt.Errorf("client mouse_speed must be in range (0, 1], got %v", c.MouseSpeed)
 		}
 	default:
 		return fmt.Errorf("role must be %q or %q, got %q", RoleServer, RoleClient, c.Role)
