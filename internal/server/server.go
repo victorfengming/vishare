@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -22,6 +23,8 @@ type clientState struct {
 	screenName string
 	screenW    uint16
 	screenH    uint16
+	cursorXF   float64
+	cursorYF   float64
 }
 
 type Server struct {
@@ -115,6 +118,8 @@ func (s *Server) handleClient(ctx context.Context, conn net.Conn) {
 		screenName: hs.ScreenName,
 		screenW:    hs.ScreenW,
 		screenH:    hs.ScreenH,
+		cursorXF:   float64(hs.ScreenW) / 2,
+		cursorYF:   float64(hs.ScreenH) / 2,
 	}
 
 	s.mu.Lock()
@@ -126,6 +131,7 @@ func (s *Server) handleClient(ctx context.Context, conn net.Conn) {
 		delete(s.clients, hs.ScreenName)
 		if s.activeClient == cs {
 			s.activeClient = nil
+			input.ReleaseLocalInput()
 		}
 		s.mu.Unlock()
 		if s.statusCh != nil {
@@ -163,6 +169,7 @@ func (s *Server) readLoop(ctx context.Context, cs *clientState) {
 			s.mu.Lock()
 			if s.activeClient == cs {
 				s.activeClient = nil
+				input.ReleaseLocalInput()
 			}
 			s.mu.Unlock()
 		case protocol.MsgPong:
@@ -211,6 +218,9 @@ func (s *Server) keepalive(ctx context.Context, cs *clientState) {
 // the need for a polling timer.
 func (s *Server) dispatcher(ctx context.Context, eventCh <-chan input.HookEvent) {
 	var edgeCount int
+	centerX := s.localW / 2
+	centerY := s.localH / 2
+	ignoreWarp := false
 
 	for {
 		select {
@@ -248,8 +258,12 @@ func (s *Server) dispatcher(ctx context.Context, eventCh <-chan input.HookEvent)
 					continue
 				}
 
-				// Warp cursor to center
-				robotgo.Move(s.localW/2, s.localH/2)
+				if err := input.GrabLocalInput(); err != nil {
+					log.Warn().Err(err).Msg("failed to grab local input")
+				}
+
+				robotgo.Move(centerX, centerY)
+				ignoreWarp = true
 
 				s.mu.Lock()
 				s.activeClient = target
@@ -263,6 +277,21 @@ func (s *Server) dispatcher(ctx context.Context, eventCh <-chan input.HookEvent)
 				}:
 				default:
 				}
+				continue
+			}
+			if ev.Kind == input.EventMouseMove {
+				dx := int(ev.X) - centerX
+				dy := int(ev.Y) - centerY
+				if ignoreWarp && abs(dx) <= 1 && abs(dy) <= 1 {
+					ignoreWarp = false
+					continue
+				}
+				if dx == 0 && dy == 0 {
+					continue
+				}
+				s.forwardMouseDelta(ac, dx, dy)
+				ignoreWarp = true
+				robotgo.Move(centerX, centerY)
 				continue
 			}
 			// Forward event to active client
@@ -355,4 +384,46 @@ func (s *Server) forwardEvent(cs *clientState, ev input.HookEvent) {
 	default:
 		log.Warn().Msg("client send buffer full, dropping event")
 	}
+}
+
+func (s *Server) forwardMouseDelta(cs *clientState, dx, dy int) {
+	if s.localW <= 0 || s.localH <= 0 || cs.screenW == 0 || cs.screenH == 0 {
+		return
+	}
+
+	cs.cursorXF += float64(dx) * float64(cs.screenW) / float64(s.localW)
+	cs.cursorYF += float64(dy) * float64(cs.screenH) / float64(s.localH)
+	cs.cursorXF = clampFloat(cs.cursorXF, 0, float64(cs.screenW-1))
+	cs.cursorYF = clampFloat(cs.cursorYF, 0, float64(cs.screenH-1))
+
+	msg := protocol.Message{
+		Type: protocol.MsgMouseMove,
+		Payload: protocol.EncodeMouseMove(protocol.MouseMovePayload{
+			X: int16(math.Round(cs.cursorXF)),
+			Y: int16(math.Round(cs.cursorYF)),
+		}),
+	}
+
+	select {
+	case cs.sendCh <- msg:
+	default:
+		log.Warn().Msg("client send buffer full, dropping mouse move")
+	}
+}
+
+func clampFloat(v, minV, maxV float64) float64 {
+	if v < minV {
+		return minV
+	}
+	if v > maxV {
+		return maxV
+	}
+	return v
+}
+
+func abs(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }

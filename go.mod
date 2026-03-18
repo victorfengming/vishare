@@ -6,6 +6,7 @@ require (
 	fyne.io/systray v1.12.0
 	github.com/BurntSushi/toml v1.3.2
 	github.com/go-vgo/robotgo v1.0.1
+	github.com/jezek/xgb v1.2.0
 	github.com/robotn/gohook v0.41.0
 	github.com/rs/zerolog v1.33.0
 )
@@ -16,7 +17,6 @@ require (
 	github.com/gen2brain/shm v0.1.1 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.0 // indirect
-	github.com/jezek/xgb v1.2.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20251013123823-9fd1530e3ec3 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
