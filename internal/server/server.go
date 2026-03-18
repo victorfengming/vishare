@@ -153,6 +153,11 @@ func (s *Server) readLoop(ctx context.Context, cs *clientState) {
 			return
 		}
 		switch msg.Type {
+		case protocol.MsgPing:
+			select {
+			case cs.sendCh <- protocol.Message{Type: protocol.MsgPong}:
+			default:
+			}
 		case protocol.MsgSwitchBack:
 			log.Info().Str("client", cs.screenName).Msg("client returned control")
 			s.mu.Lock()

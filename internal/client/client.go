@@ -21,6 +21,7 @@ type Client struct {
 	statusCh   chan<- status.Msg
 	injector   input.Injector
 	hasControl atomic.Bool
+	skipEdge   atomic.Bool
 
 	screenW, screenH int
 }
@@ -108,6 +109,7 @@ func (c *Client) readLoop(ctx context.Context, conn net.Conn, sendCh chan protoc
 		switch msg.Type {
 		case protocol.MsgSwitchTo:
 			log.Info().Msg("got control")
+			c.skipEdge.Store(true)
 			c.hasControl.Store(true)
 		case protocol.MsgMouseMove:
 			if !c.hasControl.Load() {
@@ -214,6 +216,13 @@ func (c *Client) edgePoller(ctx context.Context, sendCh chan protocol.Message) {
 				continue
 			}
 			cx, cy := robotgo.GetMousePos()
+			if c.skipEdge.Load() {
+				edgeCount = 0
+				if !c.atEdge(cx, cy) {
+					c.skipEdge.Store(false)
+				}
+				continue
+			}
 			if c.atEdge(cx, cy) {
 				edgeCount++
 				if edgeCount >= defaults.EdgeHysteresis {

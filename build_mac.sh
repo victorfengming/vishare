@@ -8,6 +8,12 @@ if ! command -v go &>/dev/null; then
     exit 1
 fi
 
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "错误: build_mac.sh 必须在 macOS 上运行。"
+    echo "原因: vishare 依赖 CGO 和 macOS Framework，不能直接从 Linux 用普通 go build 交叉编译。"
+    exit 1
+fi
+
 echo "==> Go 版本: $(go version)"
 
 echo "==> 安装系统依赖（需要 Homebrew）..."

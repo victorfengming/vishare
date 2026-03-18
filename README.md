@@ -93,7 +93,8 @@ go build -o build/vishare ./cmd/vishare
 ### macOS (Apple Silicon / ARM64)
 
 ```bash
-GOOS=darwin GOARCH=arm64 go build -o build/vishare-darwin-arm64 ./cmd/vishare
+CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 \
+  go build -o build/vishare-darwin-arm64 ./cmd/vishare
 ```
 
 Or use the provided script:
@@ -101,6 +102,10 @@ Or use the provided script:
 ```bash
 ./build_mac.sh
 ```
+
+This build must be run on macOS with Xcode Command Line Tools installed.
+Building `darwin` binaries from Linux with the plain `go build` command will fail
+because this project depends on CGO (`robotgo`, `gohook`, `systray`).
 
 ### Windows
 
@@ -117,7 +122,7 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc \
   go build -o build/vishare.exe ./cmd/vishare
 ```
 
-> **Note**: CGO is required (used by robotgo). macOS binaries must be built on a Mac.
+> **Note**: CGO is required. macOS binaries should be built on a Mac.
 
 ---
 
